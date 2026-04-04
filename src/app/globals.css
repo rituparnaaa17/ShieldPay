@@ -18,40 +18,33 @@
 }
 
 :root {
-  /* Clean White Background */
-  --background: oklch(0.99 0 0); 
-  /* Slate/Zinc for Text */
-  --foreground: oklch(0.25 0.01 250);
+  --background: oklch(0.985 0.01 250);
+  --foreground: oklch(0.25 0.02 255);
   
-  /* White Cards with soft shadows */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.25 0.01 250);
+  --card-foreground: oklch(0.25 0.02 255);
   
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.25 0.01 250);
+  --popover-foreground: oklch(0.25 0.02 255);
   
-  /* Deep Trust Blue */
-  --primary: oklch(0.5 0.15 250);
+  --primary: oklch(0.52 0.17 252);
   --primary-foreground: oklch(0.98 0 0);
   
-  /* Cool Slate for Secondary */
-  --secondary: oklch(0.95 0.01 250);
-  --secondary-foreground: oklch(0.2 0.02 250);
+  --secondary: oklch(0.95 0.02 252);
+  --secondary-foreground: oklch(0.2 0.02 252);
   
-  /* Bright Red Accent for highlights/CTAs */
-  --accent: oklch(0.6 0.22 20);
+  --accent: oklch(0.62 0.15 245);
   --accent-foreground: oklch(0.98 0 0);
   
-  /* Soft Red for alerts */
-  --destructive: oklch(0.6 0.22 20);
+  --destructive: oklch(0.62 0.18 20);
   --destructive-foreground: oklch(0.98 0 0);
   
-  --muted: oklch(0.96 0.01 250);
-  --muted-foreground: oklch(0.55 0.02 250);
+  --muted: oklch(0.96 0.02 252);
+  --muted-foreground: oklch(0.53 0.02 252);
   
-  --border: oklch(0.93 0.02 250);
-  --input: oklch(0.93 0.02 250);
-  --ring: oklch(0.5 0.15 250);
+  --border: oklch(0.92 0.02 252);
+  --input: oklch(0.92 0.02 252);
+  --ring: oklch(0.52 0.17 252);
 
   /* Minimalist radius */
   --radius: 0.75rem;
@@ -61,24 +54,39 @@
   * {
     @apply border-border;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(219, 234, 254, 0.55), transparent 28%),
+      radial-gradient(circle at top right, rgba(191, 219, 254, 0.35), transparent 24%),
+      linear-gradient(180deg, rgba(239, 246, 255, 0.8), rgba(248, 251, 255, 0.95));
+    background-attachment: fixed;
   }
 }
 
 /* Subtle, elegant non-neon custom utilities */
 @layer utilities {
   .subtle-card {
-    background-color: var(--color-card);
+    background-color: rgb(255 255 255 / 0.84);
     border: 1px solid var(--color-border);
-    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 0 3px rgba(15, 23, 42, 0.02);
-    border-radius: var(--radius-2xl);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 18px 60px -28px rgba(15, 23, 42, 0.18);
+    border-radius: 1.5rem;
+    backdrop-filter: blur(18px);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
   }
   .subtle-card:hover {
-    box-shadow: 0 12px 30px -4px rgba(37, 99, 235, 0.08), 0 4px 10px -2px rgba(15, 23, 42, 0.04);
-    border-color: rgba(37, 99, 235, 0.15);
-    transform: translateY(-2px);
+    box-shadow: 0 22px 70px -24px rgba(37, 99, 235, 0.18);
+    border-color: rgba(37, 99, 235, 0.16);
+    transform: translateY(-3px);
+  }
+  .glass-panel {
+    background: rgb(255 255 255 / 0.72);
+    border: 1px solid rgb(255 255 255 / 0.7);
+    box-shadow: 0 18px 60px -32px rgba(15, 23, 42, 0.22);
+    backdrop-filter: blur(20px);
   }
   .hide-scrollbar::-webkit-scrollbar {
     display: none;

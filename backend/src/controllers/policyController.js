@@ -51,6 +51,7 @@ export const getUserPolicies = asyncHandler(async (req, res) => {
       zoneName:       p.zone_name,
       riskLevel:      p.risk_level,
       riskBand:       p.risk_band,
+      coverageTriggers: p.coverage_triggers,
       finalPremium:   parseFloat(p.final_premium),
       coverageAmount: parseFloat(p.coverage_amount),
       validFrom:      p.valid_from,

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { FadeUp } from "@/components/animated/FadeUp";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { apiUrl } from "@/lib/api";
 
 const PLANS = {
   basic: { name: "Basic Protection", price: 45, cap: 2000, triggers: "Heavy Rain Coverage, Zone Shutdowns", features: ["Heavy Rain Coverage", "Zone Shutdowns", "24/7 Support"] },
@@ -16,29 +17,124 @@ const PLANS = {
 function PaymentContent() {
   const searchParams = useSearchParams();
   const planId = searchParams.get('plan') || 'plus';
-  const selectedPlan = PLANS[planId as keyof typeof PLANS] || PLANS.plus;
+  const quoteId = searchParams.get('quote_id');
+  const routePrice = searchParams.get('price');
+  const routeCap = searchParams.get('cap');
+
+  const basePlan = PLANS[planId as keyof typeof PLANS] || PLANS.plus;
+  const parsedPrice = routePrice ? Number(routePrice) : NaN;
+  const parsedCap = routeCap ? Number(routeCap) : NaN;
+  const selectedPlan = {
+    ...basePlan,
+    price: !isNaN(parsedPrice) && parsedPrice > 0 ? parsedPrice : basePlan.price,
+    cap: !isNaN(parsedCap) && parsedCap > 0 ? parsedCap : basePlan.cap,
+  };
+
+  const planTierMap: Record<string, string> = {
+    basic: "basic",
+    plus: "standard",
+    pro: "premium",
+  };
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showGateway, setShowGateway] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [user, setUser] = useState({ name: "Rahul Kumar", phone: "+91 98765 43210", platform: "Zomato", type: "Food Delivery", zone: "Koramangala", city: "Bengaluru" });
+  const [user, setUser] = useState({ id: "", name: "Rahul Kumar", phone: "+91 98765 43210", platform: "Zomato", type: "Food Delivery", zone: "Koramangala", city: "Bengaluru" });
+  const [upiId, setUpiId] = useState("");
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem('shieldpay_user');
       if (stored) {
-        setUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setUser(parsed);
+        if (parsed.phone) {
+          setUpiId(`${parsed.phone.replace(/\\D/g, '')}@paytm`);
+        }
+      } else {
+        setUpiId(`${user.phone.replace(/\\D/g, '')}@paytm`);
       }
     } catch(e) {}
   }, []);
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setIsProcessing(true);
+    setShowGateway(true);
+
+    let createdPolicyData: any = null;
+
+    if (quoteId && user.id) {
+      try {
+        const response = await fetch(apiUrl("/api/policies/create"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quote_id: quoteId,
+            user_id: user.id
+          })
+        });
+
+        if (response.ok) {
+          const payload = await response.json();
+          createdPolicyData = payload?.data ?? null;
+        }
+      } catch (err) {
+        console.error("Failed to create live policy", err);
+      }
+    }
+
     setTimeout(() => {
-      localStorage.setItem('shieldpay_plan', JSON.stringify(selectedPlan));
+      const boughtOnIso = new Date().toISOString();
+      const validUntilIso = createdPolicyData?.validUntil || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      localStorage.setItem('shieldpay_plan', JSON.stringify({
+        ...selectedPlan,
+        quoteId: quoteId || "",
+        planTier: createdPolicyData?.planTier || planTierMap[planId] || "standard",
+        policyNumber: createdPolicyData?.policyNumber || "",
+        validFrom: createdPolicyData?.validFrom || boughtOnIso,
+        validUntil: validUntilIso,
+        boughtOn: boughtOnIso,
+        renewalDate: new Date(validUntilIso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        city: user.city,
+        zone: user.zone,
+        autoRenewal: true,
+      }));
       setIsProcessing(false);
+      setShowGateway(false);
       setSuccess(true);
-    }, 2000);
+    }, 4000);
   };
+
+  if (showGateway) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-900 text-white relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none"></div>
+        <FadeUp className="text-center z-10 w-full max-w-sm">
+           <div className="mb-8 flex justify-center">
+             <div className="relative">
+               <div className="w-20 h-20 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+               <ShieldCheck className="w-8 h-8 text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+             </div>
+           </div>
+           
+           <h2 className="text-2xl font-bold mb-2">Processing Payment</h2>
+           <p className="text-slate-400 mb-8">Please don't refresh or close this window...</p>
+           
+           <div className="bg-slate-800/80 backdrop-blur-md rounded-2xl p-6 border border-slate-700/50 shadow-2xl">
+             <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-700">
+               <span className="text-slate-400">Paying securely via</span>
+               <span className="font-bold text-white flex items-center gap-2"><div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div> Mock Gateway</span>
+             </div>
+             <div className="flex justify-between items-center text-lg">
+               <span className="text-slate-300">Amount</span>
+               <span className="font-bold text-white">₹{selectedPlan.price.toFixed(2)}</span>
+             </div>
+           </div>
+        </FadeUp>
+      </div>
+    );
+  }
 
   if (success) {
     return (
@@ -58,7 +154,14 @@ function PaymentContent() {
             </div>
             <div>
                <div className="text-xs text-slate-500 font-medium mb-1 uppercase tracking-wider">Renewal Date</div>
-               <div className="font-semibold text-slate-900">Dec 28, 2026</div>
+               <div className="font-semibold text-slate-900">
+                 {(() => {
+                   try {
+                     const p = JSON.parse(localStorage.getItem('shieldpay_plan') || '{}');
+                     return p.renewalDate || (p.validUntil ? new Date(p.validUntil).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Next week');
+                   } catch { return 'Next week'; }
+                 })()}
+               </div>
             </div>
           </div>
           
@@ -149,7 +252,7 @@ function PaymentContent() {
               <div className="space-y-4 mb-8">
                 <div>
                   <label className="text-sm font-semibold text-slate-700 block mb-1.5">UPI ID</label>
-                  <input type="text" defaultValue="rahul.k@paytm" className="w-full h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all text-sm" />
+                  <input type="text" value={upiId} onChange={e => setUpiId(e.target.value)} className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all text-sm text-slate-900 font-bold shadow-sm" placeholder="Enter your UPI ID" />
                 </div>
                  <div>
                   <label className="text-sm font-semibold text-slate-700 block mb-1.5">Auto-renewal</label>

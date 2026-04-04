@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
   ArrowLeft, 
@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FadeUp, StaggeredFadeUp } from "@/components/animated/FadeUp";
-import { recentClaims } from "@/data/mock";
+import { apiUrl } from "@/lib/api";
 
 const TRACKER_STEPS = [
   { id: "trigger", title: "Trigger Detected", desc: "Heavy rain confirmed", status: "completed" },
@@ -24,10 +24,62 @@ const TRACKER_STEPS = [
 
 export default function ClaimsPage() {
   const [filter, setFilter] = useState("All");
+  const [claims, setClaims] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [liveTrigger, setLiveTrigger] = useState<any>(null);
+  const [userZone, setUserZone] = useState("Koramangala");
+
+  useEffect(() => {
+    let zone = "Koramangala";
+    try {
+      const stored = localStorage.getItem('shieldpay_user');
+      if (stored) {
+        zone = JSON.parse(stored).zone || "Koramangala";
+        setUserZone(zone);
+      }
+    } catch(e) {}
+
+    // Fetch active triggers to populate Active Claim Tracker
+    fetch(apiUrl("/api/triggers/active"))
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data && data.data.length > 0) {
+          const active = data.data.find((t: any) => t.zone_name === zone);
+          if (active) {
+            setLiveTrigger({
+              type: active.trigger_type,
+              severity: active.severity_score || active.severity,
+              started: new Date(active.created_at).toLocaleDateString()
+            });
+          }
+        }
+      })
+      .catch(err => console.error(err));
+
+    fetch(apiUrl("/api/claims/all"))
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.claims) {
+          const mapped = data.claims.map((c: any) => ({
+            id: `CLM-${c.claim_id.substring(0, 4)}`,
+            trigger: `Trigger: ${c.trigger_id.substring(0,6)}`,
+            date: new Date(c.created_at).toLocaleDateString(),
+            amount: c.payout_amount,
+            status: c.status === 'paid' ? 'Paid' : c.status === 'review' ? 'Under Review' : c.status
+          }));
+          if (mapped.length > 0) setClaims(mapped);
+        }
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load claims", err);
+        setIsLoading(false);
+      });
+  }, []);
 
   const filteredClaims = filter === "All" 
-    ? recentClaims 
-    : recentClaims.filter(c => c.status === filter);
+    ? claims 
+    : claims.filter(c => c.status === filter);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 py-10 px-6">
@@ -41,69 +93,71 @@ export default function ClaimsPage() {
         </FadeUp>
 
         {/* Active Claim Tracker */}
-        <FadeUp delay={0.1}>
-          <div className="subtle-card bg-white p-8 mb-12 relative overflow-hidden">
-             
-             <div className="flex flex-col sm:flex-row justify-between items-start mb-10 relative z-10 gap-4">
-               <div>
-                  <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-200 mb-3 border-0 transition-colors hidden sm:inline-flex">
-                    In Progress
-                  </Badge>
-                  <h2 className="text-xl font-bold text-slate-900">Heavy Rain - Koramangala</h2>
-                  <p className="text-slate-500 mt-1 text-sm font-medium">Claim #CLM-8910 • Estimating payout...</p>
+        {liveTrigger && (
+          <FadeUp delay={0.1}>
+            <div className="subtle-card bg-white p-8 mb-12 relative overflow-hidden">
+               
+               <div className="flex flex-col sm:flex-row justify-between items-start mb-10 relative z-10 gap-4">
+                 <div>
+                    <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-200 mb-3 border-0 transition-colors hidden sm:inline-flex">
+                      In Progress
+                    </Badge>
+                    <h2 className="text-xl font-bold text-slate-900">{liveTrigger.type} - {userZone}</h2>
+                    <p className="text-slate-500 mt-1 text-sm font-medium">Auto-Trigger Score: {liveTrigger.severity}</p>
+                 </div>
+                 <div className="text-left sm:text-right">
+                    <p className="text-sm font-semibold text-slate-900">Started</p>
+                    <p className="text-sm text-slate-500 font-medium">{liveTrigger.started}</p>
+                 </div>
                </div>
-               <div className="text-left sm:text-right">
-                  <p className="text-sm font-semibold text-slate-900">Started</p>
-                  <p className="text-sm text-slate-500 font-medium">Oct 24, 2:15 PM</p>
-               </div>
-             </div>
-
-             {/* Horizontal Timeline for Desktop, Vertical for Mobile */}
-             <div className="relative z-10 hidden sm:block">
-                <div className="relative flex items-start justify-between">
-                  {/* Background Line */}
-                  <div className="absolute top-4 left-0 w-full h-1 bg-slate-100 rounded-full z-0"></div>
-                  {/* Progress Line */}
-                  <div className="absolute top-4 left-0 w-[66%] h-1 bg-blue-600 rounded-full z-0"></div>
-
-                  {TRACKER_STEPS.map((step, idx) => (
-                    <div key={step.id} className="relative z-10 flex flex-col items-center flex-1 text-center">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center mb-4 border-[3px] transition-colors ${
-                        step.status === 'completed' ? 'bg-blue-600 border-white text-white shadow-sm' :
-                        step.status === 'current' ? 'bg-white border-blue-600 shadow-sm' :
-                        'bg-white border-slate-200 text-slate-400'
-                      }`}>
-                         {step.status === 'completed' && <Check className="w-5 h-5 text-white" />}
-                         {step.status === 'current' && <div className="w-3 h-3 bg-blue-600 rounded-full animate-pulse"></div>}
-                         {step.status === 'upcoming' && <span className="text-sm font-bold">{idx + 1}</span>}
+  
+               {/* Horizontal Timeline for Desktop, Vertical for Mobile */}
+               <div className="relative z-10 hidden sm:block">
+                  <div className="relative flex items-start justify-between">
+                    {/* Background Line */}
+                    <div className="absolute top-4 left-0 w-full h-1 bg-slate-100 rounded-full z-0"></div>
+                    {/* Progress Line */}
+                    <div className="absolute top-4 left-0 w-[66%] h-1 bg-blue-600 rounded-full z-0"></div>
+  
+                    {TRACKER_STEPS.map((step, idx) => (
+                      <div key={step.id} className="relative z-10 flex flex-col items-center flex-1 text-center">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center mb-4 border-[3px] transition-colors ${
+                          step.status === 'completed' ? 'bg-blue-600 border-white text-white shadow-sm' :
+                          step.status === 'current' ? 'bg-white border-blue-600 shadow-sm' :
+                          'bg-white border-slate-200 text-slate-400'
+                        }`}>
+                           {step.status === 'completed' && <Check className="w-5 h-5 text-white" />}
+                           {step.status === 'current' && <div className="w-3 h-3 bg-blue-600 rounded-full animate-pulse"></div>}
+                           {step.status === 'upcoming' && <span className="text-sm font-bold">{idx + 1}</span>}
+                        </div>
+                        <h4 className={`text-sm font-bold mb-1 ${step.status === 'upcoming' ? 'text-slate-400' : 'text-slate-900'}`}>{step.title}</h4>
+                        <p className={`text-xs ${step.status === 'upcoming' ? 'text-slate-300' : 'text-slate-500'} max-w-[120px]`}>{step.desc}</p>
                       </div>
-                      <h4 className={`text-sm font-bold mb-1 ${step.status === 'upcoming' ? 'text-slate-400' : 'text-slate-900'}`}>{step.title}</h4>
-                      <p className={`text-xs ${step.status === 'upcoming' ? 'text-slate-300' : 'text-slate-500'} max-w-[120px]`}>{step.desc}</p>
+                    ))}
+                  </div>
+               </div>
+               
+               {/* Mobile Timeline */}
+               <div className="relative z-10 sm:hidden pl-4 border-l-2 border-slate-100 space-y-6">
+                  {TRACKER_STEPS.map((step, idx) => (
+                    <div key={step.id} className="relative">
+                      <div className={`absolute -left-[25px] top-0 w-5 h-5 rounded-full border-2 bg-white flex items-center justify-center ${
+                         step.status === 'completed' ? 'border-blue-600 bg-blue-600 text-white' :
+                         step.status === 'current' ? 'border-blue-600' : 'border-slate-200 text-slate-400'
+                      }`}>
+                         {step.status === 'completed' && <Check className="w-3 h-3" />}
+                         {step.status === 'current' && <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>}
+                      </div>
+                      <div>
+                        <h4 className={`text-sm font-bold ${step.status === 'upcoming' ? 'text-slate-400' : 'text-slate-900'}`}>{step.title}</h4>
+                        <p className={`text-xs mt-0.5 ${step.status === 'upcoming' ? 'text-slate-300' : 'text-slate-500'}`}>{step.desc}</p>
+                      </div>
                     </div>
                   ))}
-                </div>
-             </div>
-             
-             {/* Mobile Timeline */}
-             <div className="relative z-10 sm:hidden pl-4 border-l-2 border-slate-100 space-y-6">
-                {TRACKER_STEPS.map((step, idx) => (
-                  <div key={step.id} className="relative">
-                    <div className={`absolute -left-[25px] top-0 w-5 h-5 rounded-full border-2 bg-white flex items-center justify-center ${
-                       step.status === 'completed' ? 'border-blue-600 bg-blue-600 text-white' :
-                       step.status === 'current' ? 'border-blue-600' : 'border-slate-200 text-slate-400'
-                    }`}>
-                       {step.status === 'completed' && <Check className="w-3 h-3" />}
-                       {step.status === 'current' && <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>}
-                    </div>
-                    <div>
-                      <h4 className={`text-sm font-bold ${step.status === 'upcoming' ? 'text-slate-400' : 'text-slate-900'}`}>{step.title}</h4>
-                      <p className={`text-xs mt-0.5 ${step.status === 'upcoming' ? 'text-slate-300' : 'text-slate-500'}`}>{step.desc}</p>
-                    </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-        </FadeUp>
+               </div>
+            </div>
+          </FadeUp>
+        )}
 
         {/* Payout History */}
         <FadeUp delay={0.2} className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

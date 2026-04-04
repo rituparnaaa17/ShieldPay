@@ -1,6 +1,12 @@
 import { query } from '../config/db.js';
 import { getQuoteById } from './pricingService.js';
 
+const PLAN_COVERAGE_TRIGGERS = {
+  basic: ['HEAVY_RAIN', 'SEVERE_AQI'],
+  standard: ['HEAVY_RAIN', 'FLOOD', 'SEVERE_AQI'],
+  premium: ['HEAVY_RAIN', 'FLOOD', 'SEVERE_AQI', 'HEATWAVE', 'ZONE_SHUTDOWN'],
+};
+
 export const createPolicy = async ({ quoteId, userId }) => {
   // 1. Fetch and validate quote
   const quote = await getQuoteById(quoteId);
@@ -27,10 +33,17 @@ export const createPolicy = async ({ quoteId, userId }) => {
   // 4. Create policy (7-day validity)
   const { rows } = await query(
     `INSERT INTO policies
-       (user_id, quote_id, plan_tier, final_premium, coverage_amount)
-     VALUES ($1, $2, $3, $4, $5)
+       (user_id, quote_id, plan_tier, final_premium, coverage_amount, coverage_triggers)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [userId, quoteId, quote.plan_tier, quote.final_premium, quote.coverage_amount]
+    [
+      userId,
+      quoteId,
+      quote.plan_tier,
+      quote.final_premium,
+      quote.coverage_amount,
+      PLAN_COVERAGE_TRIGGERS[quote.plan_tier] ?? PLAN_COVERAGE_TRIGGERS.basic,
+    ]
   );
 
   return rows[0];
@@ -44,7 +57,8 @@ export const getActivePoliciesByUser = async (userId) => {
        pq.base_premium, pq.loc_risk_surcharge,
        pq.worker_exp_factor, pq.plan_surcharge,
        pq.discount_applied, pq.risk_band,
-       z.zone_name, z.zone_code, z.risk_level
+       z.zone_name, z.zone_code, z.risk_level,
+       p.coverage_triggers
      FROM policies p
      JOIN pricing_quotes pq ON pq.id = p.quote_id
      JOIN zones z ON z.id = pq.zone_id

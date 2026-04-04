@@ -148,7 +148,12 @@ export const calculatePremium = async ({
   discountApplied = round2(Math.min(discountApplied, discountCap));
 
   // ── 10. Final premium ─────────────────────────────────────────────────────
-  const finalPremium = round2(Math.max(subTotal - discountApplied, 10)); // floor ₹10
+  const tierMin = { basic: 45, standard: 85, premium: 120 };
+  const tierMax = { basic: 75, standard: 130, premium: 180 };
+
+  let finalPremium = round2(subTotal - discountApplied);
+  finalPremium = Math.max(finalPremium, tierMin[planTier]);
+  finalPremium = Math.min(finalPremium, tierMax[planTier]);
 
   // ── 11. Coverage amount ───────────────────────────────────────────────────
   const coverageAmount = round2(

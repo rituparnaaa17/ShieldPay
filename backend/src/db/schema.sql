@@ -174,3 +174,161 @@ ON CONFLICT (pincode) DO NOTHING;
 INSERT INTO pincode_zone_map (pincode, zone_id, city)
 SELECT '600001', id, 'Chennai' FROM zones WHERE zone_code = 'CHN-C'
 ON CONFLICT (pincode) DO NOTHING;
+
+-- =============================================================
+-- FRAUD DETECTION SCHEMA
+-- =============================================================
+
+-- ──────────────────────────────────────────────────────────────
+-- DEVICE FINGERPRINTS (track device consistency)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS device_fingerprints (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id         VARCHAR(255)  NOT NULL,              -- SHA256 of device signature
+  device_name       VARCHAR(255),
+  os_name           VARCHAR(50),
+  browser_name      VARCHAR(50),
+  ip_address        INET,
+  ip_country        VARCHAR(100),
+  ip_city           VARCHAR(100),
+  is_vpn            BOOLEAN       DEFAULT FALSE,
+  is_proxy          BOOLEAN       DEFAULT FALSE,
+  last_seen         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_device_user_id ON device_fingerprints(user_id);
+CREATE INDEX idx_device_id ON device_fingerprints(device_id);
+CREATE INDEX idx_device_ip ON device_fingerprints(ip_address);
+
+-- ──────────────────────────────────────────────────────────────
+-- IDENTITY VERIFICATION (KYC + document tracking)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS identity_verification (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  kyc_status        VARCHAR(20)   NOT NULL DEFAULT 'pending'
+                      CHECK (kyc_status IN ('pending', 'verified', 'rejected', 'expired')),
+  
+  -- Document hashes (never store actual documents)
+  aadhaar_hash      VARCHAR(255),              -- SHA256 of Aadhaar number
+  pan_hash          VARCHAR(255),              -- PAN number hash
+  dl_hash           VARCHAR(255),              -- Driving License hash
+  
+  -- Verification metadata
+  verified_by       VARCHAR(100),              -- Manual reviewer or AI system
+  verification_date TIMESTAMPTZ,
+  rejection_reason  TEXT,
+  
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_identity_user_id ON identity_verification(user_id);
+CREATE INDEX idx_identity_aadhaar ON identity_verification(aadhaar_hash);
+CREATE INDEX idx_identity_pan ON identity_verification(pan_hash);
+
+-- ──────────────────────────────────────────────────────────────
+-- FRAUD FLAGS & RISK SCORING
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fraud_flags (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  flag_type         VARCHAR(50)   NOT NULL,
+                      -- 'vpn_detected', 'location_mismatch', 'duplicate_identity',
+                      -- 'policy_stacking', 'claim_velocity', 'income_outlier',
+                      -- 'unverified_kyc', 'beneficiary_fraud'
+  severity          VARCHAR(20)   NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+  description       TEXT          NOT NULL,
+  risk_score_delta  NUMERIC(5,2)  NOT NULL DEFAULT 0,  -- How much to add to risk score
+  is_active         BOOLEAN       DEFAULT TRUE,
+  metadata          JSONB,                             -- Additional context
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  resolved_at       TIMESTAMPTZ
+);
+
+CREATE INDEX idx_fraud_flags_user_id ON fraud_flags(user_id);
+CREATE INDEX idx_fraud_flags_active ON fraud_flags(is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_fraud_flags_severity ON fraud_flags(severity);
+
+-- ──────────────────────────────────────────────────────────────
+-- FRAUD RISK SCORES (aggregated per user)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fraud_risk_scores (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  overall_score     NUMERIC(5,2)  NOT NULL DEFAULT 0,   -- 0-100, higher = more fraud risk
+  kyc_score         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+  location_score    NUMERIC(5,2)  NOT NULL DEFAULT 0,
+  device_score      NUMERIC(5,2)  NOT NULL DEFAULT 0,
+  velocity_score    NUMERIC(5,2)  NOT NULL DEFAULT 0,   -- Claims/policy frequency
+  duplicate_score   NUMERIC(5,2)  NOT NULL DEFAULT 0,   -- Identity duplication risk
+  risk_level        VARCHAR(20)   NOT NULL DEFAULT 'low'
+                      CHECK (risk_level IN ('low', 'medium', 'high', 'very_high')),
+  action_required   VARCHAR(50),
+                      -- NULL, 'manual_review', 'block', 'request_verification'
+  last_updated      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_risk_scores_user_id ON fraud_risk_scores(user_id);
+CREATE INDEX idx_risk_scores_overall ON fraud_risk_scores(overall_score);
+CREATE INDEX idx_risk_scores_level ON fraud_risk_scores(risk_level);
+CREATE INDEX idx_risk_scores_action ON fraud_risk_scores(action_required);
+
+-- ──────────────────────────────────────────────────────────────
+-- CLAIM ACTIVITY LOG (track claim velocity)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS claim_activity (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  policy_id         UUID          NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+  claim_amount      NUMERIC(12,2) NOT NULL,
+  claim_status      VARCHAR(20)   NOT NULL DEFAULT 'submitted'
+                      CHECK (claim_status IN ('submitted', 'approved', 'rejected', 'paid')),
+  submitted_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  approved_at       TIMESTAMPTZ,
+  fraud_review      BOOLEAN       DEFAULT NULL,         -- NULL = pending, TRUE = flagged, FALSE = clean
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_claim_user_id ON claim_activity(user_id);
+CREATE INDEX idx_claim_status ON claim_activity(claim_status);
+CREATE INDEX idx_claim_submitted ON claim_activity(submitted_at);
+CREATE INDEX idx_claim_fraud_review ON claim_activity(fraud_review);
+
+-- ──────────────────────────────────────────────────────────────
+-- BENEFICIARY ACCOUNTS (track account reuse across workers)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS beneficiary_accounts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_number    VARCHAR(255)  NOT NULL,              -- Encrypted bank account
+  ifsc_code         VARCHAR(20)   NOT NULL,
+  account_holder    VARCHAR(120),
+  linked_at         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_beneficiary_user_id ON beneficiary_accounts(user_id);
+-- WARNING: This index helps detect if multiple users share the same account
+CREATE INDEX idx_beneficiary_account ON beneficiary_accounts(account_number);
+
+-- ──────────────────────────────────────────────────────────────
+-- POLICY CHANGE AUDIT (early warning: rapid policy changes)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS policy_changes_audit (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  policy_id         UUID          NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+  change_type       VARCHAR(50)   NOT NULL,
+                      -- 'created', 'upgraded', 'cancelled', 'claim_filed'
+  old_values        JSONB,
+  new_values        JSONB,
+  changed_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_policy_audit_user_id ON policy_changes_audit(user_id);
+CREATE INDEX idx_policy_audit_type ON policy_changes_audit(change_type);
+CREATE INDEX idx_policy_audit_changed_at ON policy_changes_audit(changed_at);

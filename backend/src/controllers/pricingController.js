@@ -8,6 +8,8 @@ export const getQuote = asyncHandler(async (req, res) => {
   const {
     city,
     pincode,
+    lat,
+    lng,
     work_type,
     daily_hours,
     avg_weekly_income,
@@ -16,16 +18,15 @@ export const getQuote = asyncHandler(async (req, res) => {
     user_id,
   } = req.body;
 
-  // ── Coerce types (handles PowerShell/JSON number-as-string edge cases) ──
-  const parsedHours   = Number(daily_hours);
-  const parsedIncome  = Number(avg_weekly_income);
-  const parsedExp     = Number(years_experience ?? 0);
+  const parsedHours  = Number(daily_hours);
+  const parsedIncome = Number(avg_weekly_income);
+  const parsedExp    = Number(years_experience ?? 0);
 
-  // ── Input validation ────────────────────────────────────────────────────
+  // ── Validation ─────────────────────────────────────────────────────────────
   const errors = [];
 
-  if (!city && !pincode)
-    errors.push('Provide at least city or pincode.');
+  if (!city && !pincode && lat == null && lng == null)
+    errors.push('Provide at least one of: city, pincode, or lat+lng.');
 
   if (!work_type || !VALID_WORK_TYPES.includes(work_type))
     errors.push(`work_type must be one of: ${VALID_WORK_TYPES.join(', ')}.`);
@@ -39,13 +40,14 @@ export const getQuote = asyncHandler(async (req, res) => {
   if (!plan_tier || !VALID_PLAN_TIERS.includes(plan_tier))
     errors.push(`plan_tier must be one of: ${VALID_PLAN_TIERS.join(', ')}.`);
 
-  if (errors.length > 0) {
+  if (errors.length > 0)
     return res.status(400).json({ success: false, message: 'Validation failed.', errors });
-  }
 
   const result = await calculatePremium({
     city:            city?.trim() ?? null,
     pincode:         pincode?.toString().trim() ?? null,
+    lat:             lat != null ? parseFloat(lat) : null,
+    lng:             lng != null ? parseFloat(lng) : null,
     workType:        work_type,
     dailyHours:      parsedHours,
     avgWeeklyIncome: parsedIncome,

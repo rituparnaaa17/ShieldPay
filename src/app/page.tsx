@@ -3,42 +3,85 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Shield, Clock, TrendingUp, HandHeart, ArrowRight, Zap, CheckCircle2 } from "lucide-react";
+import { Shield, Clock, TrendingUp, HandHeart, ArrowRight, Zap, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FadeUp, StaggeredFadeUp, HoverLift } from "@/components/animated/FadeUp";
+import { apiUrl } from "@/lib/api";
 
 export default function LandingPage() {
   const router = useRouter();
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
-    // Capture form data if in signup mode
-    if (authMode === 'signup') {
-      const formData = new FormData(e.currentTarget);
-      const userData = {
-        name: formData.get('name') || 'Rahul Kumar',
-        phone: formData.get('phone') || '+91 98765 43210',
-        city: formData.get('city') || 'Bengaluru',
-        zone: formData.get('zone') || 'Koramangala',
-        platform: formData.get('platform') || 'Zomato',
-        type: formData.get('type') || 'Food Delivery',
-        hours: formData.get('hours') || '40',
-        income: formData.get('income') || '4500'
-      };
-      localStorage.setItem('shieldpay_user', JSON.stringify(userData));
-    }
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
-    setTimeout(() => {
-      if (authMode === 'login') {
-        router.push("/dashboard");
+    const formData = new FormData(e.currentTarget);
+
+    try {
+      if (authMode === 'signup') {
+        const payload = {
+          name: formData.get('name'),
+          phone: formData.get('phone'),
+          city: formData.get('city'),
+          zone: formData.get('zone'),
+          platform: formData.get('platform'),
+          type: formData.get('type'),
+          hours: formData.get('hours'),
+          income: formData.get('income'),
+        };
+
+        const res = await fetch(apiUrl('/api/auth/register'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setErrorMsg(data.error || 'Registration failed');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Persist user to localStorage with all form data
+        localStorage.setItem('shieldpay_user', JSON.stringify(data.user));
+        setSuccessMsg('Welcome to ShieldPay! Redirecting to plans...');
+        setTimeout(() => router.push('/plans'), 1000);
+
       } else {
-        router.push("/plans");
+        const phone = formData.get('phone') as string;
+
+        const res = await fetch(apiUrl('/api/auth/login'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setErrorMsg(data.error || 'Login failed');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Merge stored extras with fresh DB user
+        const stored = JSON.parse(localStorage.getItem('shieldpay_user') || '{}');
+        localStorage.setItem('shieldpay_user', JSON.stringify({ ...stored, ...data.user }));
+        setSuccessMsg('Login successful! Redirecting...');
+        setTimeout(() => router.push('/dashboard'), 800);
       }
-    }, 800);
+    } catch (err) {
+      setErrorMsg('Cannot reach server. Please ensure the backend is running.');
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -61,14 +104,14 @@ export default function LandingPage() {
             {authMode === 'signup' ? (
               <>
                 <span className="hidden sm:inline text-sm font-medium text-slate-500">Already a member?</span>
-                <Button variant="outline" className="h-10 px-5 rounded-full border-slate-200 hover:bg-slate-50 font-semibold" onClick={() => setAuthMode('login')}>
+                <Button variant="outline" className="h-10 px-5 rounded-full border-slate-200 hover:bg-slate-50 font-semibold" onClick={() => { setAuthMode('login'); setErrorMsg(null); }}>
                   Log In
                 </Button>
               </>
             ) : (
               <>
                 <span className="hidden sm:inline text-sm font-medium text-slate-500">New to ShieldPay?</span>
-                <Button className="h-10 px-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md shadow-blue-600/20" onClick={() => setAuthMode('signup')}>
+                <Button className="h-10 px-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md shadow-blue-600/20" onClick={() => { setAuthMode('signup'); setErrorMsg(null); }}>
                   Get Covered Now
                 </Button>
               </>
@@ -85,7 +128,7 @@ export default function LandingPage() {
           <div className="max-w-xl relative z-10">
             <FadeUp>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100/50 border border-blue-200 text-blue-700 text-sm font-bold mb-6">
-                <Zap className="w-4 h-4" /> <span>India's #1 Gig Worker Protection</span>
+                <Zap className="w-4 h-4" /> <span>India&apos;s #1 Gig Worker Protection</span>
               </div>
               
               <h2 className="text-5xl md:text-6xl lg:text-[4rem] font-extrabold text-slate-900 leading-[1.1] tracking-tight mb-6">
@@ -93,7 +136,7 @@ export default function LandingPage() {
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">weekly income.</span>
               </h2>
               <p className="text-xl text-slate-600 leading-relaxed mb-8 max-w-lg">
-                Unpredictable weather or sudden zone disruptions shouldn't stop you from earning. ShieldPay guarantees payout coverage when you can't work.
+                Unpredictable weather or sudden zone disruptions shouldn&apos;t stop you from earning. ShieldPay guarantees payout coverage when you can&apos;t work.
               </p>
               
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
@@ -116,6 +159,8 @@ export default function LandingPage() {
                   <span className="text-sm font-semibold text-slate-700">Trusted by gig workers across India</span>
                 </div>
               </div>
+
+
             </FadeUp>
           </div>
 
@@ -135,24 +180,47 @@ export default function LandingPage() {
                 </p>
               </div>
 
+              {/* Error / Success Messages */}
+              {errorMsg && (
+                <div className="mb-5 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 relative z-10">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold">{errorMsg}</p>
+                    {errorMsg.includes('already exists') && (
+                      <button onClick={() => { setAuthMode('login'); setErrorMsg(null); }} className="text-sm text-blue-600 font-bold underline mt-1">Switch to Log In →</button>
+                    )}
+                    {errorMsg.includes('not found') && (
+                      <button onClick={() => { setAuthMode('signup'); setErrorMsg(null); }} className="text-sm text-blue-600 font-bold underline mt-1">Switch to Sign Up →</button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="mb-5 flex items-center gap-3 p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 relative z-10">
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  <p className="text-sm font-semibold">{successMsg}</p>
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
                 {authMode === 'signup' ? (
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Full Name</label>
-                        <input name="name" required type="text" placeholder="Rahul Kumar" className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
+                        <input name="name" required type="text" placeholder="Rahul Kumar" className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Phone Number</label>
-                        <input name="phone" required type="tel" placeholder="+91 98765 43210" className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
+                        <input name="phone" required type="tel" placeholder="+91 98765 43210" className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">City</label>
-                        <select name="city" required className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
+                        <select name="city" required className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
                           <option value="">Select City</option>
                           <option value="Bengaluru">Bengaluru</option>
                           <option value="Mumbai">Mumbai</option>
@@ -165,14 +233,14 @@ export default function LandingPage() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Primary Zone</label>
-                        <input name="zone" required type="text" placeholder="e.g. Koramangala" className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
+                        <input name="zone" required type="text" placeholder="e.g. Koramangala" className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Platform</label>
-                        <select name="platform" required className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
+                        <select name="platform" required className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
                           <option value="">Select Platform</option>
                           <option value="Zomato">Zomato</option>
                           <option value="Swiggy">Swiggy</option>
@@ -184,7 +252,7 @@ export default function LandingPage() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Work Type</label>
-                        <select name="type" required className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
+                        <select name="type" required className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium appearance-none">
                           <option value="">Select Type</option>
                           <option value="Food Delivery">Food Delivery</option>
                           <option value="Grocery/Quick Commerce">Grocery/Quick Commerce</option>
@@ -196,11 +264,11 @@ export default function LandingPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Avg. Weekly Hours</label>
-                        <input name="hours" required type="number" placeholder="40" min="10" max="100" className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
+                        <input name="hours" required type="number" placeholder="40" min="10" max="100" className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-slate-700">Avg. Weekly Income (₹)</label>
-                        <input name="income" required type="number" placeholder="4500" min="500" className="w-full h-12 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
+                        <input name="income" required type="number" placeholder="4500" min="500" className="w-full h-12 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-sm font-medium" />
                       </div>
                     </div>
                   </>
@@ -208,12 +276,9 @@ export default function LandingPage() {
                   <>
                     <div className="space-y-1.5 mt-4">
                       <label className="text-sm font-semibold text-slate-700">Phone Number</label>
-                      <input required type="tel" placeholder="+91 98765 43210" className="w-full h-14 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-base font-medium" />
+                      <input name="phone" required type="tel" placeholder="+91 98765 43210" className="w-full h-14 px-4 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-base font-medium" />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-semibold text-slate-700">OTP / Password</label>
-                      <input required type="password" placeholder="••••••" className="w-full h-14 px-4 mb-1 bg-slate-50/50 border border-slate-200 shadow-sm rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-600/10 focus:border-blue-500 transition-all text-base font-medium tracking-widest" />
-                    </div>
+                    <p className="text-xs text-slate-400 -mt-2">We verify using your registered phone number.</p>
                   </>
                 )}
 
@@ -223,13 +288,13 @@ export default function LandingPage() {
                   className="w-full h-14 mt-6 rounded-xl text-base font-bold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg shadow-blue-600/25 hover:shadow-xl hover:shadow-blue-600/30 transition-all transform hover:-translate-y-0.5"
                 >
                   {isSubmitting 
-                    ? "Processing..." 
-                    : authMode === 'signup' ? "Continue to Pricing" : "Access Dashboard"}
-                  {!isSubmitting && <ArrowRight className="w-5 h-5 ml-2" />}
+                    ? <><Loader2 className="w-5 h-5 mr-2 animate-spin inline" /> Processing...</>
+                    : authMode === 'signup' ? <>Continue to Pricing <ArrowRight className="w-5 h-5 ml-2 inline" /></>
+                    : <>Access Dashboard <ArrowRight className="w-5 h-5 ml-2 inline" /></>}
                 </Button>
                 
                 <p className="text-center text-xs text-slate-400 mt-6 pt-4 border-t border-slate-100">
-                  By {authMode === 'signup' ? 'continuing' : 'logging in'}, you agree to our Terms of Service & Privacy Policy.
+                  By {authMode === 'signup' ? 'continuing' : 'logging in'}, you agree to our Terms of Service &amp; Privacy Policy.
                 </p>
               </form>
             </FadeUp>
@@ -239,7 +304,7 @@ export default function LandingPage() {
       </main>
 
       {/* Why ShieldPay */}
-      <section className="bg-white border-y border-slate-200 py-24 relative z-10 z-20">
+      <section className="bg-white border-y border-slate-200 py-24 relative z-20">
         <div className="container mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">Why workers choose ShieldPay</h2>
@@ -280,8 +345,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Elegant Arcane Footer */}
-      <footer className="bg-slate-900 py-12 relative z-10 z-20">
+      {/* Footer */}
+      <footer className="bg-slate-900 py-12 relative z-20">
         <div className="container mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
             <div className="flex items-center gap-2">

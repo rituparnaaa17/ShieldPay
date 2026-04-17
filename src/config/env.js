@@ -1,6 +1,10 @@
 import "dotenv/config";
 
-const required = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"];
+// When DATABASE_URL is provided (Neon / cloud), individual DB_* vars are optional
+const usingConnectionString = !!process.env.DATABASE_URL;
+const required = usingConnectionString
+  ? []
+  : ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"];
 
 const fail = (message) => {
   console.error(`Config error: ${message}`);

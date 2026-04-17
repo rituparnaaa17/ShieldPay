@@ -5,14 +5,13 @@ import { logger } from "../utils/logger.js";
 const { Pool } = pg;
 
 const pool = new Pool({
-  host: config.db.host,
-  port: config.db.port,
-  database: config.db.database,
-  user: config.db.user,
-  password: config.db.password,
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false, // Required for Neon
+  },
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // 10s — Neon serverless needs time to wake up
 });
 
 pool.on("error", (err) => {

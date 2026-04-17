@@ -1,5 +1,5 @@
-import pg from 'pg';
-import { config } from './env.js';
+import pg from "pg";
+import { config } from "./env.js";
 
 const { Pool } = pg;
 
@@ -14,16 +14,18 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-pool.on('error', (err) => {
-  console.error('Unexpected DB pool error:', err.message);
+pool.on("error", (err) => {
+  console.error("Unexpected DB pool error:", err.message);
 });
 
 export const query = (text, params) => pool.query(text, params);
 
+export const getClient = async () => pool.connect();
+
 export const testConnection = async () => {
   const client = await pool.connect();
   client.release();
-  console.log('✅ PostgreSQL connected successfully');
+  console.log("✅ PostgreSQL connected successfully");
 };
 
 export default pool;

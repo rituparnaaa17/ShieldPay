@@ -1,33 +1,33 @@
-import { query } from '../config/db.js';
-import { resolveZone } from './zoneService.js';
+import { query } from "../config/db.js";
+import { resolveZone } from "./zoneService.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PLAN CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
 const PLAN_CONFIG = {
   basic: {
-    surcharge:         0,
+    surcharge: 0,
     coverageMultiplier: 10,
-    maxCoverage:       50_000,
-    premiumFloor:      40,    // FIX 5 — tier-specific floor, not a flat ₹10
-    premiumCeil:       75,
-    label:             'Basic',
+    maxCoverage: 50_000,
+    premiumFloor: 40, // FIX 5 — tier-specific floor, not a flat ₹10
+    premiumCeil: 75,
+    label: "Basic",
   },
   standard: {
-    surcharge:         25,
+    surcharge: 25,
     coverageMultiplier: 20,
-    maxCoverage:       150_000,
-    premiumFloor:      80,
-    premiumCeil:       130,
-    label:             'Standard',
+    maxCoverage: 150_000,
+    premiumFloor: 80,
+    premiumCeil: 130,
+    label: "Standard",
   },
   premium: {
-    surcharge:         60,
+    surcharge: 60,
     coverageMultiplier: 35,
-    maxCoverage:       500_000,
-    premiumFloor:      120,
-    premiumCeil:       200,
-    label:             'Premium',
+    maxCoverage: 500_000,
+    premiumFloor: 120,
+    premiumCeil: 200,
+    label: "Premium",
   },
 };
 
@@ -35,13 +35,13 @@ const PLAN_CONFIG = {
 // WORK TYPE RISK FACTORS
 // ─────────────────────────────────────────────────────────────────────────────
 const WORK_TYPE_FACTORS = {
-  construction: 1.40,
-  factory:      1.25,
-  agriculture:  1.15,
-  delivery:     1.10,
-  retail:       1.00,
-  domestic:     0.90,
-  other:        1.05,
+  construction: 1.4,
+  factory: 1.25,
+  agriculture: 1.15,
+  delivery: 1.1,
+  retail: 1.0,
+  domestic: 0.9,
+  other: 1.05,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,30 +50,34 @@ const WORK_TYPE_FACTORS = {
 // ─────────────────────────────────────────────────────────────────────────────
 const SEASON_PROFILES = {
   // Southwest monsoon — heavy rain, flooding, delivery/construction badly hit
-  monsoon_sw: { months: [6, 7, 8, 9], multiplier: 1.30, label: 'Southwest Monsoon' },
+  monsoon_sw: {
+    months: [6, 7, 8, 9],
+    multiplier: 1.3,
+    label: "Southwest Monsoon",
+  },
   // Northeast monsoon — affects Chennai + coastal AP/TN
-  monsoon_ne: { months: [10, 11], multiplier: 1.20, label: 'Northeast Monsoon' },
+  monsoon_ne: { months: [10, 11], multiplier: 1.2, label: "Northeast Monsoon" },
   // Winter smog — Delhi, NCR, North India. AQI spikes reduce outdoor worker hours
-  smog:       { months: [11, 12, 1], multiplier: 1.15, label: 'Winter Smog' },
+  smog: { months: [11, 12, 1], multiplier: 1.15, label: "Winter Smog" },
   // Peak summer heat — outdoor work becomes dangerous, heat-stroke risk
-  heat:       { months: [4, 5], multiplier: 1.10, label: 'Summer Heat' },
+  heat: { months: [4, 5], multiplier: 1.1, label: "Summer Heat" },
 };
 
 // Cities most affected by each season
 const CITY_SEASON_MAP = {
-  Delhi:     ['smog', 'monsoon_sw', 'heat'],
-  Mumbai:    ['monsoon_sw'],
-  Chennai:   ['monsoon_ne', 'heat'],
-  Bangalore: ['monsoon_sw'],
-  Kolkata:   ['monsoon_sw'],
-  Pune:      ['monsoon_sw'],
-  Hyderabad: ['monsoon_sw', 'heat'],
+  Delhi: ["smog", "monsoon_sw", "heat"],
+  Mumbai: ["monsoon_sw"],
+  Chennai: ["monsoon_ne", "heat"],
+  Bangalore: ["monsoon_sw"],
+  Kolkata: ["monsoon_sw"],
+  Pune: ["monsoon_sw"],
+  Hyderabad: ["monsoon_sw", "heat"],
 };
 
 const getSeasonalMultiplier = (city, month = new Date().getMonth() + 1) => {
-  const applicableSeasons = CITY_SEASON_MAP[city] ?? ['monsoon_sw'];
-  let highest = 1.00;
-  let activeLabel = 'Off-Season';
+  const applicableSeasons = CITY_SEASON_MAP[city] ?? ["monsoon_sw"];
+  let highest = 1.0;
+  let activeLabel = "Off-Season";
 
   for (const seasonKey of applicableSeasons) {
     const season = SEASON_PROFILES[seasonKey];
@@ -96,33 +100,33 @@ const getSeasonalMultiplier = (city, month = new Date().getMonth() + 1) => {
 // Scale it as a % of base so the adjustment is proportional.
 const calcWorkerExpFactor = (yearsExperience = 0, basePremium = 100) => {
   if (yearsExperience >= 10) return round2(basePremium * -0.08); // 8% discount
-  if (yearsExperience >= 5)  return round2(basePremium * -0.04); // 4% discount
-  if (yearsExperience >= 2)  return 0;
-  return round2(basePremium * 0.07);                             // 7% surcharge for new workers
+  if (yearsExperience >= 5) return round2(basePremium * -0.04); // 4% discount
+  if (yearsExperience >= 2) return 0;
+  return round2(basePremium * 0.07); // 7% surcharge for new workers
 };
 
 const calcIncomeFactor = (avgWeeklyIncome) => {
-  if (avgWeeklyIncome <= 2000)  return 1.20;
-  if (avgWeeklyIncome <= 4000)  return 1.10;
-  if (avgWeeklyIncome <= 6000)  return 1.00;
+  if (avgWeeklyIncome <= 2000) return 1.2;
+  if (avgWeeklyIncome <= 4000) return 1.1;
+  if (avgWeeklyIncome <= 6000) return 1.0;
   if (avgWeeklyIncome <= 10000) return 0.95;
-  return 0.90;
+  return 0.9;
 };
 
 const calcHoursFactor = (dailyHours) => {
-  if (dailyHours <= 4)  return 0.85;
-  if (dailyHours <= 6)  return 0.95;
-  if (dailyHours <= 8)  return 1.00;
-  if (dailyHours <= 10) return 1.10;
-  return 1.20;
+  if (dailyHours <= 4) return 0.85;
+  if (dailyHours <= 6) return 0.95;
+  if (dailyHours <= 8) return 1.0;
+  if (dailyHours <= 10) return 1.1;
+  return 1.2;
 };
 
 const getRiskBand = (score) => {
-  if (score < 1.0)  return 'very_low';
-  if (score < 1.25) return 'low';
-  if (score < 1.50) return 'medium';
-  if (score < 1.75) return 'high';
-  return 'very_high';
+  if (score < 1.0) return "very_low";
+  if (score < 1.25) return "low";
+  if (score < 1.5) return "medium";
+  if (score < 1.75) return "high";
+  return "very_high";
 };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -150,7 +154,15 @@ export const calculatePremium = async ({
   userId = null,
 }) => {
   // ── 1. Resolve zone (now uses cache + lat/lng) ────────────────────────────
-  const { zone, resolvedBy } = await resolveZone({ city, pincode, lat, lng });
+  const {
+    zone,
+    resolvedBy,
+    confidence = null,
+    warning = null,
+    fallbackUsed = false,
+    matchedDistanceKm = null,
+    normalizedCity = null,
+  } = await resolveZone({ city, pincode, lat, lng });
 
   const plan = PLAN_CONFIG[planTier];
   if (!plan) {
@@ -161,12 +173,12 @@ export const calculatePremium = async ({
 
   // ── 2. Work type + adjustment factors ─────────────────────────────────────
   const workTypeFactor = WORK_TYPE_FACTORS[workType] ?? WORK_TYPE_FACTORS.other;
-  const incomeFactor   = calcIncomeFactor(avgWeeklyIncome);
-  const hoursFactor    = calcHoursFactor(dailyHours);
+  const incomeFactor = calcIncomeFactor(avgWeeklyIncome);
+  const hoursFactor = calcHoursFactor(dailyHours);
 
   // ── 3. BASE component ─────────────────────────────────────────────────────
   const rawBase = round2(
-    parseFloat(zone.base_premium) * workTypeFactor * incomeFactor * hoursFactor
+    parseFloat(zone.base_premium) * workTypeFactor * incomeFactor * hoursFactor,
   );
 
   // ── 4. FIX 4 — Apply seasonal multiplier to BASE ──────────────────────────
@@ -178,7 +190,7 @@ export const calculatePremium = async ({
 
   // ── 5. LOC_RISK surcharge ─────────────────────────────────────────────────
   const locRiskSurcharge = round2(
-    parseFloat(zone.base_premium) * (parseFloat(zone.risk_factor) - 1)
+    parseFloat(zone.base_premium) * (parseFloat(zone.risk_factor) - 1),
   );
 
   // ── 6. FIX 6 — Income-scaled experience adjustment ────────────────────────
@@ -189,15 +201,15 @@ export const calculatePremium = async ({
 
   // ── 8. Sub-total ──────────────────────────────────────────────────────────
   const subTotal = round2(
-    basePremium + locRiskSurcharge + workerExpFactor + planSurcharge
+    basePremium + locRiskSurcharge + workerExpFactor + planSurcharge,
   );
 
   // ── 9. Discounts (capped at 20% of base + loc_risk) ──────────────────────
-  const discountCap = round2((basePremium + locRiskSurcharge) * 0.20);
+  const discountCap = round2((basePremium + locRiskSurcharge) * 0.2);
   let discountApplied = 0;
 
-  if (yearsExperience >= 5)      discountApplied += round2(subTotal * 0.05); // loyalty
-  if (avgWeeklyIncome <= 2000)   discountApplied += round2(subTotal * 0.03); // low-income relief
+  if (yearsExperience >= 5) discountApplied += round2(subTotal * 0.05); // loyalty
+  if (avgWeeklyIncome <= 2000) discountApplied += round2(subTotal * 0.03); // low-income relief
   if (seasonalMultiplier === 1.0) discountApplied += round2(subTotal * 0.02); // off-season bonus
 
   discountApplied = round2(Math.min(discountApplied, discountCap));
@@ -209,12 +221,14 @@ export const calculatePremium = async ({
 
   // ── 11. Coverage amount ───────────────────────────────────────────────────
   const coverageAmount = round2(
-    Math.min(finalPremium * plan.coverageMultiplier, plan.maxCoverage)
+    Math.min(finalPremium * plan.coverageMultiplier, plan.maxCoverage),
   );
 
   // ── 12. Risk score + band ─────────────────────────────────────────────────
-  const riskScore = round2(parseFloat(zone.risk_factor) * workTypeFactor * hoursFactor);
-  const riskBand  = getRiskBand(riskScore);
+  const riskScore = round2(
+    parseFloat(zone.risk_factor) * workTypeFactor * hoursFactor,
+  );
+  const riskBand = getRiskBand(riskScore);
 
   // ── 13. FIX 7 — Persist quote WITH seasonal_multiplier for audit ──────────
   const { rows } = await query(
@@ -244,31 +258,41 @@ export const calculatePremium = async ({
       coverageAmount,
       riskBand,
       seasonalMultiplier,
-    ]
+    ],
   );
 
   const savedQuote = rows[0];
 
   // ── 14. Return full breakdown ──────────────────────────────────────────────
   return {
-    quoteId:   savedQuote.id,
+    quoteId: savedQuote.id,
     createdAt: savedQuote.created_at,
 
     zone: {
-      id:         zone.id,
-      name:       zone.zone_name,
-      code:       zone.zone_code,
-      city:       zone.city,
-      state:      zone.state,
-      riskLevel:  zone.risk_level,
+      id: zone.id,
+      name: zone.zone_name,
+      code: zone.zone_code,
+      city: zone.city,
+      state: zone.state,
+      riskLevel: zone.risk_level,
       riskFactor: parseFloat(zone.risk_factor),
       resolvedBy,
+      confidence,
+      warning,
+      fallbackUsed,
+      matchedDistanceKm,
+      normalizedCity,
     },
 
     input: {
-      city, pincode, lat, lng,
-      workType, dailyHours,
-      avgWeeklyIncome, planTier,
+      city,
+      pincode,
+      lat,
+      lng,
+      workType,
+      dailyHours,
+      avgWeeklyIncome,
+      planTier,
       yearsExperience,
     },
 
@@ -284,7 +308,7 @@ export const calculatePremium = async ({
 
     breakdown: {
       rawBase,
-      basePremium,              // rawBase × seasonalMultiplier
+      basePremium, // rawBase × seasonalMultiplier
       locRiskSurcharge,
       workerExpAdjustment: workerExpFactor,
       planSurcharge,
@@ -294,9 +318,9 @@ export const calculatePremium = async ({
     result: {
       finalPremium,
       coverageAmount,
-      planLabel:  plan.label,
-      currency:   'INR',
-      period:     'weekly',
+      planLabel: plan.label,
+      currency: "INR",
+      period: "weekly",
     },
   };
 };
@@ -310,7 +334,7 @@ export const getQuoteById = async (quoteId) => {
      FROM pricing_quotes pq
      JOIN zones z ON z.id = pq.zone_id
      WHERE pq.id = $1`,
-    [quoteId]
+    [quoteId],
   );
   return rows[0] ?? null;
 };

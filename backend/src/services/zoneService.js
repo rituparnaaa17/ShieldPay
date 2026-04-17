@@ -7,6 +7,19 @@ import prisma from '../config/db.js';
 /**
  * Resolve zone by pincode → city → fallback to DEFAULT zone
  */
+// Common city name aliases (alternate spellings / old names)
+const CITY_ALIASES = {
+  bengaluru:  'Bengaluru',
+  bangalore:  'Bengaluru',
+  bombay:     'Mumbai',
+  calcutta:   'Kolkata',
+  madras:     'Chennai',
+  gurgaon:    'Delhi',
+  gurugram:   'Delhi',
+  noida:      'Delhi',
+  faridabad:  'Delhi',
+};
+
 export const resolveZone = async ({ city, pincode } = {}) => {
   // 1. Try pincode lookup
   if (pincode) {
@@ -17,10 +30,15 @@ export const resolveZone = async ({ city, pincode } = {}) => {
     if (pincodeMap) return { zone: pincodeMap.zone, resolvedBy: 'pincode' };
   }
 
-  // 2. Try city name match
-  if (city) {
+  // 2. Normalise city alias before lookup
+  const normalised = city
+    ? (CITY_ALIASES[city.trim().toLowerCase()] ?? city.trim())
+    : null;
+
+  // 3. Try city name match (case-insensitive)
+  if (normalised) {
     const zone = await prisma.zone.findFirst({
-      where: { city: { contains: city, mode: 'insensitive' } },
+      where: { city: { contains: normalised, mode: 'insensitive' } },
       orderBy: { riskFactor: 'desc' },
     });
     if (zone) return { zone, resolvedBy: 'city' };

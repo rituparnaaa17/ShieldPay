@@ -1,5 +1,6 @@
 import pg from "pg";
 import { config } from "./env.js";
+import { logger } from "../utils/logger.js";
 
 const { Pool } = pg;
 
@@ -15,7 +16,9 @@ const pool = new Pool({
 });
 
 pool.on("error", (err) => {
-  console.error("Unexpected DB pool error:", err.message);
+  logger.error("Unexpected DB pool error", {
+    error: err.message,
+  });
 });
 
 export const query = (text, params) => pool.query(text, params);
@@ -25,7 +28,12 @@ export const getClient = async () => pool.connect();
 export const testConnection = async () => {
   const client = await pool.connect();
   client.release();
-  console.log("✅ PostgreSQL connected successfully");
+
+  logger.info("PostgreSQL connected successfully", {
+    host: config.db.host,
+    database: config.db.database,
+    port: config.db.port,
+  });
 };
 
 export default pool;

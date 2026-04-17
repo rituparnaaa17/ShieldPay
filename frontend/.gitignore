@@ -30,8 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — keep secrets out, but allow .env.production for Vercel
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# .env.production is intentionally committed so Vercel picks up NEXT_PUBLIC_* vars
 
 # vercel
 .vercel

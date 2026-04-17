@@ -25,33 +25,27 @@ function PaymentContent() {
   const router  = useRouter();
   const params  = useSearchParams();
 
-  // URL params set by plans/page.tsx when user clicks "Activate Plan"
-  const quoteId    = params.get("quoteId") || params.get("quote_id") || null;
-  const planTierParam  = params.get("plan") || "standard"; // e.g. "basic" | "standard" | "premium"
-  // price & coverage come from the plans page (already calculated by backend)
-  const priceParam     = Number(params.get("price") || "0");   // tier-calculated ₹ premium
-  const coverageParam  = Number(params.get("coverage") || "70"); // tier coverage %
+  const quoteIdFromUrl = params.get("quoteId") || params.get("quote_id") || "";
+  const planTierParam  = params.get("plan") || "standard";
+  const priceParam     = Number(params.get("price") || "0");
 
   const tierInfo = TIER_INFO[planTierParam] || TIER_INFO["standard"];
 
-  // After /api/policies/create responds, we use its values (authoritative)
-  const [policyData, setPolicyData]     = useState<Record<string, unknown> | null>(null);
-  const [loading,    setLoading]        = useState(false);
-  const [creating,   setCreating]       = useState(false);
-  const [success,    setSuccess]        = useState(false);
-  const [error,      setError]          = useState<string | null>(null);
+  const [policyData, setPolicyData]       = useState<Record<string, unknown> | null>(null);
+  const [loading,    setLoading]          = useState(false);
+  const [creating,   setCreating]         = useState(false);
+  const [success,    setSuccess]          = useState(false);
+  const [error,      setError]            = useState<string | null>(null);
   const [razorpayReady, setRazorpayReady] = useState(false);
+  // resolvedQuoteId: from URL, or auto-fetched when missing
+  const [resolvedQuoteId, setResolvedQuoteId] = useState<string>(quoteIdFromUrl);
+  const [fetchingQuote,   setFetchingQuote]   = useState(false);
 
-  // Displayed premium — start with URL param, replaced by backend's authoritative value once policy is created
-  const displayedPremium = policyData
-    ? Number(policyData.finalPremium)
-    : priceParam || 0;
-  const displayedCoverage = tierInfo.coverage;
-  const displayedTierLabel = policyData
-    ? String(policyData.planTier || planTierParam)
-    : planTierParam;
+  const displayedPremium   = policyData ? Number(policyData.finalPremium) : priceParam || 0;
+  const displayedCoverage  = tierInfo.coverage;
+  const displayedTierLabel = policyData ? String(policyData.planTier || planTierParam) : planTierParam;
 
-  // Load Razorpay script
+  // ── Load Razorpay script ───────────────────────────────────────────────────
   useEffect(() => {
     if (document.querySelector('script[src*="razorpay"]')) { setRazorpayReady(true); return; }
     const script = document.createElement("script");
@@ -62,57 +56,107 @@ function PaymentContent() {
     document.body.appendChild(script);
   }, []);
 
-  // ── Shared: save a policy to localStorage after activation ─────────────────
+  // ── Auto-generate quoteId if none came from URL ────────────────────────────
+  // This happens when the user selected a plan from fallback pricing.
+  useEffect(() => {
+    if (resolvedQuoteId) return; // already have one — skip
+    const user = getUser() as Record<string, string> | null;
+    if (!user) return;
+
+    const autofetch = async () => {
+      setFetchingQuote(true);
+      try {
+        const city       = user.city  || "Bengaluru";
+        const income     = Number(user.income)     || 4500;
+        const experience = Number(user.experience) || 1;
+
+        const rawType = (user.type || "").toLowerCase();
+        let workType  = "other";
+        if      (rawType.includes("delivery") || rawType.includes("food"))   workType = "delivery";
+        else if (rawType.includes("construction"))                            workType = "construction";
+        else if (rawType.includes("domestic") || rawType.includes("house"))  workType = "domestic";
+        else if (rawType.includes("factory")  || rawType.includes("manufactur")) workType = "factory";
+        else if (rawType.includes("agri")     || rawType.includes("farm"))   workType = "agriculture";
+        else if (rawType.includes("retail")   || rawType.includes("shop"))   workType = "retail";
+
+        const res = await fetch(apiUrl("/api/pricing/quote"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            city,
+            avg_weekly_income: income,
+            work_type:         workType,
+            years_experience:  experience,
+            user_id:           user.id || undefined,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data?.quoteId) {
+            setResolvedQuoteId(data.data.quoteId);
+          }
+        }
+      } catch (e) {
+        console.warn("Auto quote fetch failed — demo mode still works:", e);
+      } finally {
+        setFetchingQuote(false);
+      }
+    };
+
+    autofetch();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Persist plan to localStorage ───────────────────────────────────────────
   const persistPlan = (data: Record<string, unknown>) => {
-    const tier = String(data.planTier || planTierParam);
+    const tier  = String(data.planTier || planTierParam);
     const tInfo = TIER_INFO[tier] || TIER_INFO["standard"];
     localStorage.setItem("shieldpay_plan", JSON.stringify({
-      name:         tInfo.label,
-      price:        Number(data.finalPremium || displayedPremium),
-      cap:          Number(data.coverageAmount || 0),
-      coverage:     tInfo.coverage,
-      planTier:     tier,
-      policyNumber: data.policyNumber || "",
-      triggers:     "Heavy Rain, Flood, Severe AQI, Heatwave, Zone Shutdown",
-      renewalDate:  data.validUntil ? new Date(String(data.validUntil)).toLocaleDateString("en-IN") : "",
-      validFrom:    data.validFrom || "",
-      validUntil:   data.validUntil || "",
+      name:          tInfo.label,
+      price:         Number(data.finalPremium || displayedPremium),
+      cap:           Number(data.coverageAmount || 0),
+      coverage:      tInfo.coverage,
+      planTier:      tier,
+      policyNumber:  data.policyNumber || "",
+      triggers:      "Heavy Rain, Flood, Severe AQI, Heatwave, Zone Shutdown",
+      renewalDate:   data.validUntil ? new Date(String(data.validUntil)).toLocaleDateString("en-IN") : "",
+      validFrom:     data.validFrom  || "",
+      validUntil:    data.validUntil || "",
       paymentStatus: "paid",
     }));
   };
 
-  // ── Create policy on backend (shared by both demo & Razorpay flows) ─────────
+  // ── Create policy on backend ───────────────────────────────────────────────
   const createPolicyOnBackend = async () => {
-    if (!quoteId) throw new Error("No quote ID. Please go back to Plans and select a plan.");
-
-    const createRes = await fetch(apiUrl("/api/policies/create"), {
-      method: "POST",
+    if (!resolvedQuoteId) {
+      throw new Error("Quote is still being prepared. Please wait a moment and try again.");
+    }
+    const createRes  = await fetch(apiUrl("/api/policies/create"), {
+      method:  "POST",
       headers: authHeaders() as HeadersInit,
-      body: JSON.stringify({ quote_id: quoteId, plan_tier: planTierParam }),
+      body:    JSON.stringify({ quote_id: resolvedQuoteId, plan_tier: planTierParam }),
     });
     const createData = await createRes.json();
     if (!createRes.ok) throw new Error(createData.message || "Failed to create policy.");
-
-    const { data } = createData;
-    setPolicyData(data);
-    return data;
+    setPolicyData(createData.data);
+    return createData.data;
   };
 
-  // ── Demo bypass: activate policy without real payment ──────────────────────
+  // ── Demo bypass ────────────────────────────────────────────────────────────
   const handleDemoActivate = useCallback(async () => {
     setCreating(true);
     setError(null);
     try {
-      if (!quoteId) {
-        // No quote — commit plan directly from URL params to localStorage
+      if (!resolvedQuoteId) {
+        // No real quote — save plan data directly to localStorage, skip backend
         const tInfo = TIER_INFO[planTierParam] || TIER_INFO["standard"];
         localStorage.setItem("shieldpay_plan", JSON.stringify({
-          name:         tInfo.label,
-          price:        priceParam || 85,
-          coverage:     tInfo.coverage,
-          planTier:     planTierParam,
-          triggers:     "Heavy Rain, Flood, Severe AQI, Heatwave, Zone Shutdown",
-          renewalDate:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-IN"),
+          name:          tInfo.label,
+          price:         priceParam || 60,
+          coverage:      tInfo.coverage,
+          planTier:      planTierParam,
+          triggers:      "Heavy Rain, Flood, Severe AQI, Heatwave, Zone Shutdown",
+          renewalDate:   new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-IN"),
           paymentStatus: "demo",
         }));
         setSuccess(true);
@@ -122,11 +166,10 @@ function PaymentContent() {
 
       const data = await createPolicyOnBackend();
 
-      // Demo: skip Razorpay, activate directly
-      const verifyRes = await fetch(apiUrl("/api/policies/demo-activate"), {
-        method: "POST",
+      const verifyRes  = await fetch(apiUrl("/api/policies/demo-activate"), {
+        method:  "POST",
         headers: authHeaders() as HeadersInit,
-        body: JSON.stringify({ policy_id: data.policyId }),
+        body:    JSON.stringify({ policy_id: data.policyId }),
       });
       const verifyData = await verifyRes.json();
 
@@ -136,19 +179,26 @@ function PaymentContent() {
         setCreating(false);
         setTimeout(() => router.push("/dashboard"), 1800);
       } else {
-        setError(verifyData.message || "Activation failed. Try Razorpay instead.");
+        setError(verifyData.message || "Activation failed. Try again.");
         setCreating(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Demo activation failed.");
       setCreating(false);
     }
-  }, [quoteId, planTierParam, priceParam, router]);
+  }, [resolvedQuoteId, planTierParam, priceParam, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Real Razorpay payment ──────────────────────────────────────────────────
   const handleRazorpay = useCallback(async () => {
-    if (!quoteId) { setError("No quote ID. Please go back to Plans and select a plan."); return; }
     if (!razorpayReady) { setError("Razorpay is still loading. Please wait a moment."); return; }
+    if (!resolvedQuoteId) {
+      if (fetchingQuote) {
+        setError("Your quote is being prepared — please wait a second and try again.");
+      } else {
+        setError("Could not load a quote. Please use Demo Activate below, or go back to Plans.");
+      }
+      return;
+    }
     setCreating(true);
     setError(null);
 
@@ -158,7 +208,7 @@ function PaymentContent() {
 
       const options = {
         key:         data.razorpay.keyId,
-        amount:      data.razorpay.amount,          // from backend — matches tier-calculated premium
+        amount:      data.razorpay.amount,
         currency:    data.razorpay.currency,
         name:        "ShieldPay",
         description: `${TIER_INFO[String(data.planTier)]?.label || "Plan"} — weekly premium`,
@@ -197,7 +247,7 @@ function PaymentContent() {
       setError(err instanceof Error ? err.message : "Payment failed. Try the demo bypass below.");
       setCreating(false);
     }
-  }, [quoteId, razorpayReady, planTierParam, router]);
+  }, [resolvedQuoteId, razorpayReady, fetchingQuote, planTierParam, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Success screen ─────────────────────────────────────────────────────────
   if (success) return (
@@ -240,7 +290,7 @@ function PaymentContent() {
             <p className="text-slate-400 text-sm mt-1">Secure payment via Razorpay · Test Mode</p>
           </div>
 
-          {/* Plan summary — always reflects the tier chosen on plans page */}
+          {/* Plan summary */}
           <div className="bg-white/5 rounded-2xl p-4 space-y-3 border border-white/10">
             <div className="flex justify-between text-sm items-center">
               <span className="text-slate-400">Plan</span>
@@ -259,13 +309,20 @@ function PaymentContent() {
                 ₹{displayedPremium > 0 ? displayedPremium.toFixed(0) : "—"}
               </span>
             </div>
-            {policyData && (
-              <p className="text-[11px] text-slate-500 text-right">
-                Based on your location risk &amp; coverage level
+            {/* Quote status indicator */}
+            {fetchingQuote && (
+              <p className="text-[11px] text-blue-400/70 flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Finalising your personalised quote...
+              </p>
+            )}
+            {resolvedQuoteId && !fetchingQuote && (
+              <p className="text-[11px] text-emerald-400/70">
+                ✓ Quote ready · based on your location risk
               </p>
             )}
           </div>
 
+          {/* Error banner — only shows after a failed button action */}
           {error && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm flex items-start gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />

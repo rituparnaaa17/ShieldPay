@@ -8,25 +8,19 @@ const PLAN_CONFIG = {
   basic: {
     surcharge: 0,
     coverageMultiplier: 10,
-    maxCoverage: 50_000,
-    premiumFloor: 40, // FIX 5 — tier-specific floor, not a flat ₹10
-    premiumCeil: 75,
+    maxCoverage: 50000,
     label: "Basic",
   },
   standard: {
     surcharge: 25,
     coverageMultiplier: 20,
-    maxCoverage: 150_000,
-    premiumFloor: 80,
-    premiumCeil: 130,
+    maxCoverage: 150000,
     label: "Standard",
   },
   premium: {
     surcharge: 60,
     coverageMultiplier: 35,
-    maxCoverage: 500_000,
-    premiumFloor: 120,
-    premiumCeil: 200,
+    maxCoverage: 500000,
     label: "Premium",
   },
 };
@@ -45,64 +39,14 @@ const WORK_TYPE_FACTORS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX 4 — SEASONAL MULTIPLIER
-// India has 3 distinct risk seasons that directly affect gig workers
-// ─────────────────────────────────────────────────────────────────────────────
-const SEASON_PROFILES = {
-  // Southwest monsoon — heavy rain, flooding, delivery/construction badly hit
-  monsoon_sw: {
-    months: [6, 7, 8, 9],
-    multiplier: 1.3,
-    label: "Southwest Monsoon",
-  },
-  // Northeast monsoon — affects Chennai + coastal AP/TN
-  monsoon_ne: { months: [10, 11], multiplier: 1.2, label: "Northeast Monsoon" },
-  // Winter smog — Delhi, NCR, North India. AQI spikes reduce outdoor worker hours
-  smog: { months: [11, 12, 1], multiplier: 1.15, label: "Winter Smog" },
-  // Peak summer heat — outdoor work becomes dangerous, heat-stroke risk
-  heat: { months: [4, 5], multiplier: 1.1, label: "Summer Heat" },
-};
-
-// Cities most affected by each season
-const CITY_SEASON_MAP = {
-  Delhi: ["smog", "monsoon_sw", "heat"],
-  Mumbai: ["monsoon_sw"],
-  Chennai: ["monsoon_ne", "heat"],
-  Bangalore: ["monsoon_sw"],
-  Kolkata: ["monsoon_sw"],
-  Pune: ["monsoon_sw"],
-  Hyderabad: ["monsoon_sw", "heat"],
-};
-
-const getSeasonalMultiplier = (city, month = new Date().getMonth() + 1) => {
-  const applicableSeasons = CITY_SEASON_MAP[city] ?? ["monsoon_sw"];
-  let highest = 1.0;
-  let activeLabel = "Off-Season";
-
-  for (const seasonKey of applicableSeasons) {
-    const season = SEASON_PROFILES[seasonKey];
-    if (season && season.months.includes(month)) {
-      if (season.multiplier > highest) {
-        highest = season.multiplier;
-        activeLabel = season.label;
-      }
-    }
-  }
-  return { multiplier: highest, label: activeLabel };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// FIX 6 — Experience adjustment scaled to income (not flat ±₹10)
-// A flat ₹10 on a ₹10,000/week worker is 0.1% — meaningless.
-// Scale it as a % of base so the adjustment is proportional.
-const calcWorkerExpFactor = (yearsExperience = 0, basePremium = 100) => {
-  if (yearsExperience >= 10) return round2(basePremium * -0.08); // 8% discount
-  if (yearsExperience >= 5) return round2(basePremium * -0.04); // 4% discount
+const calcWorkerExpFactor = (yearsExperience = 0) => {
+  if (yearsExperience >= 10) return -10;
+  if (yearsExperience >= 5) return -5;
   if (yearsExperience >= 2) return 0;
-  return round2(basePremium * 0.07); // 7% surcharge for new workers
+  return 10;
 };
 
 const calcIncomeFactor = (avgWeeklyIncome) => {
@@ -131,21 +75,96 @@ const getRiskBand = (score) => {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+const buildExplanation = ({
+  zone,
+  resolvedBy,
+  confidence,
+  warning,
+  fallbackUsed,
+  normalizedCity,
+  matchedDistanceKm,
+  workType,
+  workTypeFactor,
+  incomeFactor,
+  hoursFactor,
+  workerExpFactor,
+  plan,
+  planSurcharge,
+  discountApplied,
+  finalPremium,
+  riskBand,
+}) => {
+  const drivers = [
+    `Zone "${zone.zone_name}" in ${zone.city} with risk factor ${parseFloat(zone.risk_factor).toFixed(2)}`,
+    `Work type "${workType}" applied factor ${workTypeFactor.toFixed(2)}`,
+    `Income factor ${incomeFactor.toFixed(2)} and hours factor ${hoursFactor.toFixed(2)}`,
+  ];
+
+  if (workerExpFactor > 0) {
+    drivers.push(`New-worker surcharge of ₹${workerExpFactor} applied`);
+  } else if (workerExpFactor < 0) {
+    drivers.push(
+      `Experience discount of ₹${Math.abs(workerExpFactor)} applied`,
+    );
+  } else {
+    drivers.push("No experience adjustment applied");
+  }
+
+  if (planSurcharge > 0) {
+    drivers.push(`${plan.label} plan surcharge of ₹${planSurcharge} applied`);
+  } else {
+    drivers.push(`${plan.label} plan has no surcharge`);
+  }
+
+  if (discountApplied > 0) {
+    drivers.push(`Discount of ₹${discountApplied} applied`);
+  }
+
+  const notes = [];
+
+  if (resolvedBy === "pincode") {
+    notes.push(
+      "Zone was resolved directly from pincode, which is the highest-confidence lookup.",
+    );
+  }
+
+  if (resolvedBy === "city" && normalizedCity && normalizedCity !== zone.city) {
+    notes.push(
+      `Input city was normalized to "${normalizedCity}" before pricing.`,
+    );
+  }
+
+  if (warning) {
+    notes.push(warning);
+  }
+
+  if (fallbackUsed) {
+    notes.push(
+      "A fallback resolution path was used instead of an exact pincode match.",
+    );
+  }
+
+  if (matchedDistanceKm != null) {
+    notes.push(
+      `Nearest-city centroid match distance: ${matchedDistanceKm} km.`,
+    );
+  }
+
+  return {
+    summary: `Weekly premium is ₹${finalPremium} under the ${plan.label} plan. Zone resolution used ${resolvedBy} lookup with ${confidence ?? "unknown"} confidence, and the final risk band is "${riskBand}".`,
+    drivers,
+    notes,
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN PRICING FORMULA
-//
-// Weekly Premium = (BASE × SEASONAL) + LOC_RISK + WORKER_EXP + PLAN_SURCHARGE
-//                 - DISCOUNTS
-//                 → clamped to [plan.premiumFloor, plan.premiumCeil]
-//
-// FIX 4 — SEASONAL multiplier now applied to BASE before everything else,
-//          so location + season compound correctly.
 // ─────────────────────────────────────────────────────────────────────────────
 export const calculatePremium = async ({
   city,
   pincode,
-  lat,
-  lng,
+  lat = null,
+  lng = null,
   workType,
   dailyHours,
   avgWeeklyIncome,
@@ -153,7 +172,6 @@ export const calculatePremium = async ({
   yearsExperience = 0,
   userId = null,
 }) => {
-  // ── 1. Resolve zone (now uses cache + lat/lng) ────────────────────────────
   const {
     zone,
     resolvedBy,
@@ -171,74 +189,51 @@ export const calculatePremium = async ({
     throw err;
   }
 
-  // ── 2. Work type + adjustment factors ─────────────────────────────────────
   const workTypeFactor = WORK_TYPE_FACTORS[workType] ?? WORK_TYPE_FACTORS.other;
   const incomeFactor = calcIncomeFactor(avgWeeklyIncome);
   const hoursFactor = calcHoursFactor(dailyHours);
 
-  // ── 3. BASE component ─────────────────────────────────────────────────────
-  const rawBase = round2(
+  const basePremium = round2(
     parseFloat(zone.base_premium) * workTypeFactor * incomeFactor * hoursFactor,
   );
 
-  // ── 4. FIX 4 — Apply seasonal multiplier to BASE ──────────────────────────
-  const currentMonth = new Date().getMonth() + 1;
-  const { multiplier: seasonalMultiplier, label: seasonLabel } =
-    getSeasonalMultiplier(zone.city, currentMonth);
-
-  const basePremium = round2(rawBase * seasonalMultiplier);
-
-  // ── 5. LOC_RISK surcharge ─────────────────────────────────────────────────
   const locRiskSurcharge = round2(
     parseFloat(zone.base_premium) * (parseFloat(zone.risk_factor) - 1),
   );
 
-  // ── 6. FIX 6 — Income-scaled experience adjustment ────────────────────────
-  const workerExpFactor = calcWorkerExpFactor(yearsExperience, basePremium);
-
-  // ── 7. Plan surcharge ─────────────────────────────────────────────────────
+  const workerExpFactor = calcWorkerExpFactor(yearsExperience);
   const planSurcharge = plan.surcharge;
 
-  // ── 8. Sub-total ──────────────────────────────────────────────────────────
-  const subTotal = round2(
-    basePremium + locRiskSurcharge + workerExpFactor + planSurcharge,
-  );
+  const subTotal =
+    basePremium + locRiskSurcharge + workerExpFactor + planSurcharge;
 
-  // ── 9. Discounts (capped at 20% of base + loc_risk) ──────────────────────
   const discountCap = round2((basePremium + locRiskSurcharge) * 0.2);
   let discountApplied = 0;
 
-  if (yearsExperience >= 5) discountApplied += round2(subTotal * 0.05); // loyalty
-  if (avgWeeklyIncome <= 2000) discountApplied += round2(subTotal * 0.03); // low-income relief
-  if (seasonalMultiplier === 1.0) discountApplied += round2(subTotal * 0.02); // off-season bonus
+  if (yearsExperience >= 5) discountApplied += round2(subTotal * 0.05);
+  if (avgWeeklyIncome <= 2000) discountApplied += round2(subTotal * 0.03);
 
   discountApplied = round2(Math.min(discountApplied, discountCap));
 
-  // ── 10. FIX 5 — Tier-specific premium floor + ceiling ────────────────────
-  let finalPremium = round2(subTotal - discountApplied);
-  finalPremium = Math.max(finalPremium, plan.premiumFloor);
-  finalPremium = Math.min(finalPremium, plan.premiumCeil);
+  const finalPremium = round2(Math.max(subTotal - discountApplied, 10));
 
-  // ── 11. Coverage amount ───────────────────────────────────────────────────
   const coverageAmount = round2(
     Math.min(finalPremium * plan.coverageMultiplier, plan.maxCoverage),
   );
 
-  // ── 12. Risk score + band ─────────────────────────────────────────────────
   const riskScore = round2(
     parseFloat(zone.risk_factor) * workTypeFactor * hoursFactor,
   );
   const riskBand = getRiskBand(riskScore);
 
-  // ── 13. FIX 7 — Persist quote WITH seasonal_multiplier for audit ──────────
   const { rows } = await query(
     `INSERT INTO pricing_quotes
        (user_id, zone_id, city, pincode, work_type, daily_hours,
         avg_weekly_income, plan_tier,
         base_premium, loc_risk_surcharge, worker_exp_factor,
         plan_surcharge, discount_applied, final_premium,
-        coverage_amount, risk_band, seasonal_multiplier)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        coverage_amount, risk_band)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING id, created_at`,
     [
       userId,
@@ -257,17 +252,34 @@ export const calculatePremium = async ({
       finalPremium,
       coverageAmount,
       riskBand,
-      seasonalMultiplier,
     ],
   );
 
   const savedQuote = rows[0];
 
-  // ── 14. Return full breakdown ──────────────────────────────────────────────
+  const explanation = buildExplanation({
+    zone,
+    resolvedBy,
+    confidence,
+    warning,
+    fallbackUsed,
+    normalizedCity,
+    matchedDistanceKm,
+    workType,
+    workTypeFactor,
+    incomeFactor,
+    hoursFactor,
+    workerExpFactor,
+    plan,
+    planSurcharge,
+    discountApplied,
+    finalPremium,
+    riskBand,
+  });
+
   return {
     quoteId: savedQuote.id,
     createdAt: savedQuote.created_at,
-
     zone: {
       id: zone.id,
       name: zone.zone_name,
@@ -283,7 +295,6 @@ export const calculatePremium = async ({
       matchedDistanceKm,
       normalizedCity,
     },
-
     input: {
       city,
       pincode,
@@ -295,26 +306,21 @@ export const calculatePremium = async ({
       planTier,
       yearsExperience,
     },
-
     factors: {
       workTypeFactor,
       incomeFactor,
       hoursFactor,
-      seasonalMultiplier,
-      seasonLabel,
       riskScore,
       riskBand,
     },
-
     breakdown: {
-      rawBase,
-      basePremium, // rawBase × seasonalMultiplier
+      basePremium,
       locRiskSurcharge,
       workerExpAdjustment: workerExpFactor,
       planSurcharge,
       discountApplied,
     },
-
+    explanation,
     result: {
       finalPremium,
       coverageAmount,
@@ -325,9 +331,6 @@ export const calculatePremium = async ({
   };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FETCH QUOTE by ID
-// ─────────────────────────────────────────────────────────────────────────────
 export const getQuoteById = async (quoteId) => {
   const { rows } = await query(
     `SELECT pq.*, z.zone_name, z.zone_code, z.city AS zone_city, z.risk_level

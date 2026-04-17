@@ -30,15 +30,7 @@ const allowedOrigins = config.corsOrigin
   .filter(Boolean);
 
 app.use(cors({
-  origin: (origin, cb) => {
-    // allow non-browser requests (curl, Postman, server-to-server)
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    // allow any onrender.com or vercel.app subdomain (preview deployments)
-    if (/^https:\/\/[a-zA-Z0-9-]+\.onrender\.com$/.test(origin)) return cb(null, true);
-    if (/^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin)) return cb(null, true);
-    cb(new Error(`CORS: origin ${origin} not allowed`));
-  },
+  origin: true,          // reflect the request origin — allows any domain
   credentials: true,
 }));
 app.use(express.json({ limit: '10kb' }));

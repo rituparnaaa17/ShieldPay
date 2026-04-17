@@ -163,6 +163,13 @@ CREATE INDEX IF NOT EXISTS idx_policies_status      ON policies(status);
 CREATE INDEX IF NOT EXISTS idx_policies_valid_until ON policies(valid_until);
 CREATE INDEX IF NOT EXISTS idx_policies_quote_id    ON policies(quote_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_quote_id_unique
+ON policies(quote_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_one_active_per_plan
+ON policies(user_id, plan_tier)
+WHERE status = 'active';
+
 -- ──────────────────────────────────────────────────────────────
 -- WEATHER SNAPSHOTS
 -- ──────────────────────────────────────────────────────────────
@@ -241,6 +248,8 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_policy_trigger_unique ON claims(policy_id, trigger_event_id);
 CREATE INDEX IF NOT EXISTS idx_claims_user_status ON claims(user_id, claim_status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_claims_trigger_status ON claims(trigger_event_id, claim_status);
+
+
 
 -- ──────────────────────────────────────────────────────────────
 -- SEED: Zone + Pincode data (sample — extend as needed)

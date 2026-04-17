@@ -1,8 +1,8 @@
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import pg from 'pg';
-import 'dotenv/config';
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import pg from "pg";
+import "dotenv/config";
 
 const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,12 +16,13 @@ const pool = new Pool({
 });
 
 const run = async () => {
-  const sql = readFileSync(join(__dirname, 'schema.sql'), 'utf8');
+  const sql = readFileSync(join(__dirname, "schema.sql"), "utf8");
+
   try {
     await pool.query(sql);
-    console.log('✅ Schema applied successfully');
+    console.log("✅ Schema applied successfully");
   } catch (err) {
-    console.error('❌ Schema error:', err.message);
+    console.error("❌ Schema error:", err.message);
     process.exit(1);
   } finally {
     await pool.end();
